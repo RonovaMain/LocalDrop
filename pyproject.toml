@@ -1,0 +1,31 @@
+[project]
+name = "localdrop"
+version = "0.1.0"
+description = "Мгновенный хостинг веб-проектов в локальной Wi-Fi сети (Windows, Linux, Android)"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "RonovaDev" }]
+dependencies = [
+    "flet>=0.86.0",
+    "segno>=1.6.0",
+]
+
+[tool.flet]
+org = "dev.ronova"
+product = "LocalDrop"
+company = "RonovaDev"
+copyright = "Copyright (C) 2026 RonovaDev"
+
+[tool.flet.app]
+path = "src"
+
+[tool.flet.android.permission]
+"android.permission.INTERNET" = true
+"android.permission.ACCESS_NETWORK_STATE" = true
+"android.permission.ACCESS_WIFI_STATE" = true
+"android.permission.WAKE_LOCK" = true
+
+# Android 11+: allow the "open in browser" button to see browsers
+[[tool.flet.android.queries.intent]]
+action = "android.intent.action.VIEW"
+data = { scheme = "http" }
