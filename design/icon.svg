@@ -1,0 +1,29 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="cloudGrad" x1="180" y1="260" x2="840" y2="760" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#5EEAF8"/>
+      <stop offset="100%" stop-color="#9282F8"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Единый тёмный фон во весь холст -->
+  <rect width="1024" height="1024" fill="#121420"/>
+
+  <!-- Контур облака -->
+  <path d="M 320 710 H 715 C 805 710 870 645 870 560 C 870 482 814 420 738 412 C 712 310 622 240 512 240 C 392 240 295 325 280 442 C 205 456 154 516 154 585 C 154 656 218 710 320 710 Z" 
+        stroke="url(#cloudGrad)" 
+        stroke-width="58" 
+        stroke-linecap="round" 
+        stroke-linejoin="round"/>
+
+  <!-- Знак терминала >_ внутри облака -->
+  <path d="M 385 450 L 475 535 L 385 620" 
+        stroke="url(#cloudGrad)" 
+        stroke-width="56" 
+        stroke-linecap="round" 
+        stroke-linejoin="round"/>
+  <path d="M 515 620 H 645" 
+        stroke="url(#cloudGrad)" 
+        stroke-width="56" 
+        stroke-linecap="round"/>
+</svg>
