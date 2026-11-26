@@ -9,6 +9,7 @@ import time
 import flet as ft
 
 from . import APP_NAME, AUTHOR, GITHUB, PACKAGE_ID, __version__
+from .archives import PICKER_EXTENSIONS
 from .netinfo import local_ips
 from .projects import ImportErrorLD, Library, Project
 from .qr import make_qr_png
@@ -52,6 +53,7 @@ class LocalDropApp:
         self.picker = ft.FilePicker()
         self.wakelock = ft.Wakelock()
         page.services.append(self.picker)
+        page.services.append(self.wakelock)
         self.st_texts: dict[str, ft.Text] = {}
         self.busy = ft.ProgressBar(visible=False)
         self.log_view = ft.ListView(expand=True, spacing=2, auto_scroll=True)
@@ -123,10 +125,10 @@ class LocalDropApp:
             bgcolor=CARD, border_radius=16, padding=16,
             content=ft.Column(spacing=10, controls=[
                 ft.Text("Добавить сайт", size=17, weight=ft.FontWeight.BOLD),
-                ft.Text("ZIP-архив, HTML-файл или папка проекта. Сайт распакуется и сохранится в приложении.",
+                ft.Text("ZIP, TAR.GZ, сохранённая страница (MHTML, webarchive), HTML-файл или папка. Сайт распакуется и сохранится в приложении.",
                         size=13, color=MUTED),
                 ft.Row(wrap=True, spacing=8, controls=[
-                    ft.Button(content="ZIP / HTML", icon=ft.Icons.UPLOAD_FILE, on_click=self._h(self.pick_file)),
+                    ft.Button(content="Файл сайта", icon=ft.Icons.UPLOAD_FILE, on_click=self._h(self.pick_file)),
                     ft.OutlinedButton(content="Папка", icon=ft.Icons.FOLDER_OPEN,
                                       on_click=self._h(self.pick_folder))]),
                 ft.Text("Можно перетащить файлы или папку в это окно." if (ftd and not self.mobile)
@@ -181,8 +183,11 @@ class LocalDropApp:
     # ------------------------------------------------------------ importing
     async def pick_file(self) -> None:
         try:
-            files = await self.picker.pick_files(allow_multiple=True, file_type=ft.FilePickerFileType.CUSTOM,
-                                                 allowed_extensions=["zip", "html", "htm"])
+            if self.mobile:   # Android hides files with extensions it has no MIME type for
+                files = await self.picker.pick_files(allow_multiple=True)
+            else:
+                files = await self.picker.pick_files(allow_multiple=True, file_type=ft.FilePickerFileType.CUSTOM,
+                                                     allowed_extensions=PICKER_EXTENSIONS)
         except Exception as exc:
             return self.toast(f"Не удалось открыть выбор файла: {exc}")
         paths = [f.path for f in (files or []) if getattr(f, "path", None)]
@@ -474,17 +479,17 @@ class LocalDropApp:
                     raise ValueError
             except ValueError:
                 return self.toast("Порт должен быть числом от 1024 до 65535")
-            was_running = pid in self.servers
-            if was_running:
-                await self.stop(pid)
             try:
                 p.name = (name.value or p.name).strip()[:60] or p.name
                 p.port, p.spa, p.live_reload, p.cors, p.lan = pv, spa.value, live.value, cors.value, lan.value
                 if (entry.value or "").strip() != (p.entry or ""):
-                    await asyncio.to_thread(self.lib.set_entry, p, entry.value)
+                    await asyncio.to_thread(self.lib.set_entry, p, entry.value)   # validates first
                 self.lib.save(p)
             except ImportErrorLD as exc:
-                return self.toast(str(exc))
+                return self.toast(str(exc))          # nothing was stopped or changed
+            was_running = pid in self.servers
+            if was_running:
+                await self.stop(pid)
             self.page.pop_dialog()
             if was_running:
                 await self.start(pid)

@@ -8,6 +8,7 @@ import posixpath
 import re
 import shutil
 import socket
+import tarfile
 import tempfile
 import time
 import uuid
@@ -16,18 +17,14 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from .analyzer import analyze
+from .archives import (ImportErrorLD, SUPPORTED_TEXT, base_name, detect_kind, materialize, parse_mhtml,
+                       parse_webarchive, safe_extract, safe_extract_tar, saved_page_dirs)
 from .datastore import DATA_FILENAME
 from .util import data_dir, slugify
 
-MAX_ZIP_BYTES = 2 * 1024 ** 3
-MAX_ZIP_FILES = 60000
 COPY_IGNORE = shutil.ignore_patterns(".git", "node_modules", "__MACOSX", ".DS_Store", "Thumbs.db")
 DEV_SOURCE = re.compile(r"""<script[^>]+src=["'](?:\.?/)?src/[^"']+\.(?:tsx?|jsx|vue|svelte)["']""", re.I)
 BUILD_DIRS = {"dist", "build", "out", "public_html", "www"}
-
-
-class ImportErrorLD(Exception):
-    """Import failed; the message is user-facing."""
 
 
 @dataclass
@@ -55,57 +52,6 @@ class Project:
 class ImportResult:
     project: Project
     warnings: list[str] = field(default_factory=list)
-
-
-# ---------------------------------------------------------------- zip helpers
-def _fix_name(info: zipfile.ZipInfo) -> str:
-    name = info.filename
-    if info.flag_bits & 0x800 or name.isascii():
-        return name
-    try:  # zipfile decoded as cp437; recover what Windows archivers really wrote
-        raw = name.encode("cp437")
-    except UnicodeEncodeError:
-        return name
-    for enc in ("utf-8", "cp866"):
-        try:
-            return raw.decode(enc)
-        except UnicodeDecodeError:
-            continue
-    return name
-
-
-def safe_extract(zf: zipfile.ZipFile, dest: Path) -> int:
-    """Extract with zip-slip and zip-bomb protection. Returns number of files."""
-    infos = zf.infolist()
-    if len(infos) > MAX_ZIP_FILES:
-        raise ImportErrorLD(f"В архиве слишком много файлов (>{MAX_ZIP_FILES}).")
-    dest = dest.resolve()
-    total = count = 0
-    for info in infos:
-        name = _fix_name(info).replace("\\", "/")
-        parts = [p for p in name.split("/") if p not in ("", ".")]
-        if not parts or parts[0] == "__MACOSX" or parts[-1] in (".DS_Store", "Thumbs.db"):
-            continue
-        if name.startswith("/") or ".." in parts or re.match(r"^[A-Za-z]:", parts[0]):
-            continue  # zip-slip attempt: skip silently
-        target = dest.joinpath(*parts)
-        if dest not in target.resolve().parents and target.resolve() != dest:
-            continue
-        if name.endswith("/") or info.is_dir():
-            target.mkdir(parents=True, exist_ok=True)
-            continue
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with zf.open(info) as src, open(target, "wb") as out:
-            while True:
-                chunk = src.read(1024 * 256)
-                if not chunk:
-                    break
-                total += len(chunk)
-                if total > MAX_ZIP_BYTES:  # header sizes can lie, count real bytes
-                    raise ImportErrorLD("Архив слишком большой после распаковки (>2 ГБ).")
-                out.write(chunk)
-        count += 1
-    return count
 
 
 # ---------------------------------------------------------------- entry point
@@ -261,6 +207,7 @@ class Library:
             if not os.path.exists(p):
                 raise ImportErrorLD(f"Путь недоступен: {p}")
         work = Path(tempfile.mkdtemp(prefix="imp-", dir=self.tmp_dir))   # unpack in a temp dir first
+        final: Path | None = None
         try:
             stage = work / "files"
             stage.mkdir()
@@ -275,30 +222,47 @@ class Library:
             proj.stats = analyze(str(self.serve_root(proj))).to_dict()
             self.save(proj)
             return ImportResult(proj, warnings)
-        except ImportErrorLD:
+        except Exception as e:
+            if final is not None:                       # never leave a half-imported project behind
+                shutil.rmtree(final, ignore_errors=True)
+            if isinstance(e, ImportErrorLD):
+                raise
+            if isinstance(e, zipfile.BadZipFile):
+                raise ImportErrorLD("Файл повреждён или это не ZIP-архив.") from e
+            if isinstance(e, (tarfile.TarError, EOFError)):
+                raise ImportErrorLD("Архив повреждён или не поддерживается.") from e
+            if isinstance(e, PermissionError):
+                raise ImportErrorLD("Нет доступа к выбранным файлам. Для папок на Android лучше использовать ZIP.") from e
+            if isinstance(e, OSError):
+                raise ImportErrorLD(f"Ошибка импорта: {e}") from e
             raise
-        except zipfile.BadZipFile as e:
-            raise ImportErrorLD("Файл повреждён или это не ZIP-архив.") from e
-        except PermissionError as e:
-            raise ImportErrorLD("Нет доступа к выбранным файлам. Для папок на Android лучше использовать ZIP.") from e
-        except OSError as e:
-            raise ImportErrorLD(f"Ошибка импорта: {e}") from e
         finally:
             shutil.rmtree(work, ignore_errors=True)
 
     def _stage(self, paths: list[str], stage: Path) -> str:
         if len(paths) == 1:
             p = Path(paths[0])
-            if p.is_dir():
+            kind = detect_kind(p)
+            if kind == "dir":
                 shutil.copytree(p, stage, dirs_exist_ok=True, ignore=COPY_IGNORE)
-                return p.name
-            if p.suffix.lower() == ".zip" or zipfile.is_zipfile(p):
+            elif kind == "zip":
                 with zipfile.ZipFile(p) as zf:
                     if safe_extract(zf, stage) == 0:
                         raise ImportErrorLD("Архив пуст.")
-                return p.stem
-            shutil.copy2(p, stage / p.name)
-            return p.stem
+            elif kind == "tar":
+                if safe_extract_tar(p, stage) == 0:
+                    raise ImportErrorLD("Архив пуст.")
+            elif kind == "mhtml":
+                materialize(parse_mhtml(p), stage)
+            elif kind == "webarchive":
+                materialize(parse_webarchive(p), stage)
+            elif kind == "html":
+                shutil.copy2(p, stage / p.name)
+                for folder in saved_page_dirs(p):        # "Save page as -> Web page, complete"
+                    shutil.copytree(folder, stage / folder.name, dirs_exist_ok=True, ignore=COPY_IGNORE)
+            else:
+                raise ImportErrorLD(f"Не похоже на сайт. Поддерживается: {SUPPORTED_TEXT}.")
+            return p.name if kind == "dir" else base_name(p)
         # several loose files (drag-and-drop of index.html + style.css + app.js ...)
         for raw in paths:
             p = Path(raw)

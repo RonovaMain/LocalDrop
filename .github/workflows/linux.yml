@@ -5,6 +5,9 @@ on:
   push:
     tags: ["v*"]
 
+env:
+  APP_VERSION: "0.2.2"
+
 jobs:
   linux:
     runs-on: ubuntu-latest
@@ -37,16 +40,32 @@ jobs:
           git checkout -- pyproject.toml
           flet build linux --yes
 
-      - name: Pack tar.gz
-        run: tar -C build/linux -czf LocalDrop-linux-0.1.0.tar.gz .
+      # Linux: два варианта - установщик .run и портативный tar.gz
+      - name: Make .run installer
+        run: tools/make_run.sh build/linux "$APP_VERSION" "" dist
+
+      - name: Make portable tar.gz
+        run: |
+          rm -rf LocalDrop && cp -a build/linux LocalDrop
+          tar -czf "dist/LocalDrop-${APP_VERSION}-linux-x86_64.tar.gz" LocalDrop
+          ls -lh dist
+
+      - name: Smoke-test the installer (unpack + checksum)
+        run: |
+          sh "dist/LocalDrop-${APP_VERSION}-x86_64.run" --extract /tmp/ld-check
+          ls /tmp/ld-check
 
       - uses: actions/upload-artifact@v4
         with:
           name: LocalDrop-linux
-          path: LocalDrop-linux-0.1.0.tar.gz
+          path: |
+            dist/*.run
+            dist/*.tar.gz
 
       - name: Attach to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: LocalDrop-linux-0.1.0.tar.gz
+          files: |
+            dist/*.run
+            dist/*.tar.gz

@@ -4,6 +4,7 @@ Writes
   design/icon-safe.svg      same artwork scaled into the Android adaptive-icon safe zone
   src/assets/icon.png       1024x1024 safe-zone version  (default + Android launcher, never cropped)
   src/assets/icon_windows.png  1024x1024 original proportions (desktop icons have no mask)
+  installer/localdrop.ico, installer/linux/localdrop-512.png  for the Windows / Linux installers
 
 Needs Pillow + numpy (dev only).  Usage:  python tools/render_icon.py
 """
@@ -98,6 +99,10 @@ def safe_svg(scale: float, cx: float, cy: float) -> str:
 if __name__ == "__main__":
     s, cx, cy = fit_transform()
     print(f"safe-zone scale={s:.4f}  artwork centre=({cx:g},{cy:g})")
-    render(1.0, 512, 512).save(ROOT / "src/assets/icon_windows.png")   # original proportions, as designed
+    original = render(1.0, 512, 512)                                    # original proportions, as designed
+    original.save(ROOT / "src/assets/icon_windows.png")
+    (ROOT / "installer" / "linux").mkdir(parents=True, exist_ok=True)
+    original.resize((512, 512), Image.LANCZOS).save(ROOT / "installer/linux/localdrop-512.png")
+    original.save(ROOT / "installer/localdrop.ico", sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
     render(s, cx, cy).save(ROOT / "src/assets/icon.png")
     (ROOT / "design" / "icon-safe.svg").write_text(safe_svg(s, cx, cy), encoding="utf-8")

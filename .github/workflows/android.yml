@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      APP_VERSION: "0.1.0"
+      APP_VERSION: "0.2.2"
       BUNDLE_ID: dev.ronova.localdrop
     steps:
       - uses: actions/checkout@v4
@@ -31,6 +31,10 @@ jobs:
       - name: Install Flet
         run: pip install "flet>=0.86.0"
 
+      # Секреты репозитория (Settings -> Secrets and variables -> Actions):
+      #   LOCALDROP_KEYSTORE_BASE64, LOCALDROP_KEYSTORE_PASSWORD,
+      #   LOCALDROP_KEY_ALIAS, LOCALDROP_KEY_PASSWORD
+      # Создать их можно скриптом tools/make-keystore.ps1 (Windows) или tools/make-keystore.sh.
       - name: Prepare release keystore
         id: ks
         env:

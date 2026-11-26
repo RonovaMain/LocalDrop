@@ -71,3 +71,15 @@ def guess_type(path: str) -> str:
 
 def is_html(path: str) -> bool:
     return os.path.splitext(path)[1].lower() in (".html", ".htm")
+
+
+_EXT_BY_MIME: dict[str, str] = {}
+for _ext, _mt in _TYPES.items():
+    _EXT_BY_MIME.setdefault(_mt.split(";")[0].strip(), _ext)
+_EXT_BY_MIME.update({"application/javascript": ".js", "application/x-javascript": ".js", "image/jpg": ".jpg",
+                     "image/svg": ".svg", "font/sfnt": ".ttf", "application/font-woff": ".woff",
+                     "application/x-font-woff": ".woff", "image/vnd.microsoft.icon": ".ico"})
+
+
+def ext_for(mime: str) -> str:
+    return _EXT_BY_MIME.get((mime or "").split(";")[0].strip().lower(), "")
